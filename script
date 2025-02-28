@@ -1,0 +1,83 @@
+#!/bin/bash
+
+# نمایش منو
+echo "لطفاً یک گزینه را انتخاب کنید:"
+echo "1) آپدیت سرور"
+echo "2) نصب و راه‌اندازی Marzban-node"
+echo "3) خروج"
+
+# دریافت ورودی از کاربر
+read -p "انتخاب شما: " choice
+
+case $choice in
+    1)
+        echo "در حال به‌روزرسانی سرور..."
+        sudo apt update && sudo apt upgrade -y
+        echo "آپدیت سرور انجام شد."
+        ;;
+
+    2)
+        # بررسی نصب Docker
+        if ! command -v docker &> /dev/null; then
+            echo "در حال نصب Docker..."
+            curl -fsSL https://get.docker.com | sh
+            echo "Docker نصب شد."
+        else
+            echo "Docker از قبل نصب شده است. ادامه فرآیند..."
+        fi
+
+        echo "در حال کلون کردن مخزن Marzban-node..."
+        git clone https://github.com/Gozargah/Marzban-node
+        cd Marzban-node
+
+        echo "در حال اجرای Docker Compose..."
+        docker compose up -d
+        echo "Marzban-node راه‌اندازی شد."
+
+        # دریافت گواهینامه از کاربر و ذخیره در فایل
+        echo "لطفاً محتوای گواهینامه SSL خود را کپی کنید و اینجا وارد کنید."
+        echo "پس از پایان، CTRL+D را بزنید."
+        cat > /var/lib/marzban-node/ssl_client_cert.pem
+
+        # دریافت پورت‌ها از کاربر
+        read -p "لطفاً پورت اصلی سرویس را وارد کنید (پیش‌فرض: 5000): " service_port
+        service_port=${service_port:-5000}
+
+        read -p "لطفاً پورت XRAY API را وارد کنید (پیش‌فرض: 5001): " xray_api_port
+        xray_api_port=${xray_api_port:-5001}
+
+        # ویرایش docker-compose.yml با پورت‌های ورودی
+        cat > /root/Marzban-node/docker-compose.yml <<EOF
+services:
+  marzban-node:
+    # build: .
+    image: gozargah/marzban-node:latest
+    restart: always
+    network_mode: host
+
+    # env_file: .env
+    environment:
+      SERVICE_PORT: $service_port
+      XRAY_API_PORT: $xray_api_port
+      # SSL_CERT_FILE: "/var/lib/marzban-node/ssl_cert.pem"
+      # SSL_KEY_FILE: "/var/lib/marzban-node/ssl_key.pem"
+      #XRAY_EXECUTABLE_PATH: "/var/lib/marzban/xray-core/xray"
+      SSL_CLIENT_CERT_FILE: "/var/lib/marzban-node/ssl_client_cert.pem"
+      SERVICE_PROTOCOL: "rest"
+
+    volumes:
+      - /var/lib/marzban-node:/var/lib/marzban-node
+EOF
+
+        echo "فایل docker-compose.yml به‌روزرسانی شد."
+        ;;
+
+    3)
+        echo "خروج از برنامه."
+        exit 0
+        ;;
+
+    *)
+        echo "گزینه نامعتبر است."
+        ;;
+esac
