@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# نمایش منو
+# نمایش منو برای کاربر
 show_menu() {
     echo "1. Update server"
     echo "2. Install Marzban Node"
@@ -12,144 +12,127 @@ show_menu() {
     echo "8. Exit"
 }
 
-# بروزرسانی سرور
+# آپدیت سرور
 update_server() {
-    echo "Updating server..."
     sudo apt update && sudo apt upgrade -y
 }
 
 # نصب Marzban Node
 install_marzban_node() {
-    echo "Installing Marzban Node..."
-    
-    # نصب پیش‌نیازها
-    sudo apt-get install -y docker.io docker-compose
-
-    # دانلود Marzban Node
-    git clone https://github.com/fernovic/Marzban-node.git /root/Marzban-node
-
-    # ورود به مسیر
-    cd /root/Marzban-node/
-
-    # اجرای docker-compose
-    docker-compose up -d
+    git clone --recurse-submodules https://github.com/Gozargah/Marzban-node.git
+    cd Marzban-node
+    cp docker-compose.override.yml.example docker-compose.override.yml
+    docker compose up -d
+    cd ..
 }
 
-# فعالسازی بلاک ایران
+# تنظیم پورت‌ها در docker-compose.yml
+set_ports() {
+    read -p "Enter SERVICE_PORT (default: 5000): " SERVICE_PORT
+    SERVICE_PORT=${SERVICE_PORT:-5000}
+
+    read -p "Enter XRAY_API_PORT (default: 5001): " XRAY_API_PORT
+    XRAY_API_PORT=${XRAY_API_PORT:-5001}
+
+    # ویرایش فایل `docker-compose.yml`
+    sed -i "s/SERVICE_PORT:.*/SERVICE_PORT: $SERVICE_PORT/" Marzban-node/docker-compose.yml
+    sed -i "s/XRAY_API_PORT:.*/XRAY_API_PORT: $XRAY_API_PORT/" Marzban-node/docker-compose.yml
+
+    # ری‌استارت کردن Docker Compose
+    cd Marzban-node
+    docker compose down
+    docker compose up -d
+    cd ..
+}
+
+# فعال‌سازی Block Iran
 block_iran() {
-    echo "Do you want to enable the Iran block? (yes/no)"
-    read enable_iran_block
+    cd Marzban-node
 
-    if [[ "$enable_iran_block" == "yes" ]]; then
-        # ایجاد دایرکتوری برای فایل‌های assets
-        mkdir -p /var/lib/marzban/assets/
+    # اضافه کردن خطوط به volumes
+    sed -i '/volumes:/a \      - /var/lib/marzban:/var/lib/marzban\n      - /var/lib/marzban/assets:/usr/local/share/xray' docker-compose.yml
 
-        # دانلود فایل‌های بلاک ایران
-        wget -O /var/lib/marzban/assets/geosite.dat https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat
-        wget -O /var/lib/marzban/assets/geoip.dat https://github.com/v2fly/geoip/releases/latest/download/geoip.dat
-        wget -O /var/lib/marzban/assets/iran.dat https://github.com/bootmortis/iran-hosted-domains/releases/latest/download/iran.dat
+    # ایجاد دایرکتوری و دانلود فایل‌ها
+    mkdir -p /var/lib/marzban/assets/
+    wget -O /var/lib/marzban/assets/geosite.dat https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat
+    wget -O /var/lib/marzban/assets/geoip.dat https://github.com/v2fly/geoip/releases/latest/download/geoip.dat
+    wget -O /var/lib/marzban/assets/iran.dat https://github.com/bootmortis/iran-hosted-domains/releases/latest/download/iran.dat
 
-        # ویرایش فایل docker-compose.yml
-        cd /root/Marzban-node/
-        sed -i '/volumes:/a \      - /var/lib/marzban:/var/lib/marzban\n      - /var/lib/marzban/assets:/usr/local/share/xray' docker-compose.yml
-
-        # راه‌اندازی مجدد کانتینر
-        docker compose down && docker compose up -d
-
-        echo "Iran block enabled!"
-    else
-        echo "Iran block not enabled."
-    fi
+    # ری‌استارت Docker Compose
+    docker compose down
+    docker compose up -d
+    cd ..
 }
 
 # نصب ورژن دلخواه Xray
 install_custom_xray() {
-    echo "Do you want to install the latest Xray version? (yes/no)"
-    read install_latest_xray
+    sudo apt install -y unzip
+    cd Marzban-node
 
-    # نصب unzip در صورت نیاز
-    if ! command -v unzip &>/dev/null; then
-        sudo apt-get install -y unzip
-    fi
+    # فعال‌سازی XRAY_EXECUTABLE_PATH در `docker-compose.yml`
+    sed -i 's/# XRAY_EXECUTABLE_PATH/XRAY_EXECUTABLE_PATH/' docker-compose.yml
 
-    # ویرایش فایل docker-compose.yml
-    cd /root/Marzban-node/
-    sed -i 's/# XRAY_EXECUTABLE_PATH: "/var/lib/marzban/xray-core/xray"/XRAY_EXECUTABLE_PATH: "/var/lib/marzban/xray-core/xray"/' docker-compose.yml
+    echo "Choose installation option:"
+    echo "1. Install latest Xray version"
+    echo "2. Install custom Xray version"
+    read -p "Enter choice: " choice
 
-    if [[ "$install_latest_xray" == "yes" ]]; then
+    if [[ "$choice" == "1" ]]; then
         wget https://github.com/XTLS/xray-core/releases/latest/download/Xray-linux-64.zip
+    elif [[ "$choice" == "2" ]]; then
+        read -p "Enter Xray download link: " xray_link
+        wget "$xray_link"
     else
-        echo "Enter the download link for the desired Xray version:"
-        read xray_link
-        wget $xray_link -O Xray-linux-64.zip
+        echo "Invalid option!"
+        return
     fi
 
     unzip Xray-linux-64.zip
     rm Xray-linux-64.zip
 
-    # راه‌اندازی مجدد Docker
-    docker compose down && docker compose up -d
+    # ری‌استارت Docker Compose
+    docker compose down
+    docker compose up -d
+    cd ..
 }
 
 # نصب Network Manager و تنظیم کرون‌جاب
 install_network_manager() {
-    echo "Installing Network Manager..."
-    sudo apt-get install network-manager -y
-
-    echo "Do you want to restart NetworkManager periodically? (yes/no)"
-    read restart_network_cron
-
-    if [[ "$restart_network_cron" == "yes" ]]; then
-        echo "Enter the hour interval (e.g., */4 for every 4 hours):"
-        read hour_interval
-
-        (crontab -l ; echo "0 $hour_interval * * * systemctl restart NetworkManager") | crontab -
-
-        echo "Cron job set to restart NetworkManager every $hour_interval hours."
+    sudo apt-get install -y network-manager
+    read -p "Do you want to restart NetworkManager periodically? (yes/no): " response
+    if [[ "$response" == "yes" ]]; then
+        read -p "Enter interval (hours, default: 1): " interval
+        interval=${interval:-1}
+        (crontab -l 2>/dev/null; echo "0 */$interval * * * systemctl restart NetworkManager") | crontab -
     fi
 }
 
-# ریستارت خودکار نود مرزبان
+# تنظیم ری‌استارت خودکار نود مرزبان
 auto_restart_node() {
-    echo "Creating run_docker.sh script to restart Marzban Node..."
-    echo -e "#!/bin/bash\n\ncd /root/Marzban-node\n\ndocker compose down && docker compose up -d" > /root/run_docker.sh
+    echo -e "#!/bin/bash\ncd Marzban-node\ndocker compose down && docker compose up -d" > /root/run_docker.sh
     sudo chmod +x /root/run_docker.sh
 
-    echo "Do you want to restart Marzban Node periodically? (yes/no)"
-    read restart_node_cron
+    read -p "Enter interval (hours, default: 4): " interval
+    interval=${interval:-4}
+    (crontab -l 2>/dev/null; echo "0 */$interval * * * /root/run_docker.sh >/dev/null 2>&1") | crontab -
 
-    if [[ "$restart_node_cron" == "yes" ]]; then
-        echo "Enter the hour interval (e.g., */4 for every 4 hours):"
-        read hour_interval
-
-        (crontab -l ; echo "0 $hour_interval * * * /root/run_docker.sh > /dev/null 2>&1") | crontab -
-
-        echo "Cron job set to restart Marzban Node every $hour_interval hours."
-    fi
+    echo "You can manually restart Marzban Node with: /root/run_docker.sh"
 }
 
-# ریستارت خودکار سرور
+# تنظیم ری‌استارت خودکار سرور
 auto_restart_server() {
-    echo "Do you want to restart the server periodically? (yes/no)"
-    read restart_server_cron
-
-    if [[ "$restart_server_cron" == "yes" ]]; then
-        echo "Enter the hour interval (e.g., */6 for every 6 hours):"
-        read hour_interval
-
-        (crontab -l ; echo "0 $hour_interval * * * /sbin/shutdown -r now") | crontab -
-
-        echo "Cron job set to restart the server every $hour_interval hours."
-    fi
+    read -p "Enter interval (hours, default: 6): " interval
+    interval=${interval:-6}
+    (crontab -l 2>/dev/null; echo "0 */$interval * * * /sbin/shutdown -r now") | crontab -
 }
 
-# حلقه منو برای اجرای گزینه‌ها
+# اجرای منو در حلقه
 while true; do
     show_menu
     read -p "Select an option [1-8]: " option
     case $option in
         1) update_server ;;
-        2) install_marzban_node ;;
+        2) install_marzban_node; set_ports ;;
         3) block_iran ;;
         4) install_custom_xray ;;
         5) install_network_manager ;;
