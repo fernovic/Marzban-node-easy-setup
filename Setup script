@@ -1,0 +1,148 @@
+#!/bin/bash
+
+# تابع نمایش منو
+show_menu() {
+    clear
+    echo "====================="
+    echo "  Marzban Node Setup"
+    echo "====================="
+    echo "1. Update server"
+    echo "2. Install Marzban Node"
+    echo "3. Block Iran"
+    echo "4. Install custom Xray version"
+    echo "5. Install Network Manager"
+    echo "6. Auto-restart Marzban Node"
+    echo "7. Auto-restart server"
+    echo "8. Exit"
+}
+
+# تابع آپدیت سرور
+update_server() {
+    echo "Updating server..."
+    sudo apt update && sudo apt upgrade -y
+    echo "Server updated successfully."
+    read -p "Press Enter to continue..." continue
+}
+
+# تابع نصب مرزبان نود
+install_marzban_node() {
+    echo "Installing Docker..."
+    curl -fsSL https://get.docker.com | sh
+    sudo apt install -y git
+    echo "Cloning Marzban Node repository..."
+    git clone https://github.com/Gozargah/Marzban-node
+    cd Marzban-node
+    docker compose up -d
+    if [ $? -ne 0 ]; then
+        echo "Docker login required. Please visit the link provided and enter the code."
+        docker login
+        cd Marzban-node && docker compose up -d
+    fi
+    echo "Marzban Node installed successfully."
+    read -p "Press Enter to continue..." continue
+}
+
+# تابع فعال‌سازی بلاک ایران
+block_iran() {
+    nano /var/lib/marzban-node/docker-compose.yml
+    echo "Do you want to block Iran? (yes/no)"
+    read block_iran_choice
+    if [[ "$block_iran_choice" == "yes" ]]; then
+        sed -i "/- \/var\/lib\/marzban:/d" /var/lib/marzban-node/docker-compose.yml
+        sed -i "/- \/var\/lib\/marzban\/assets:/d" /var/lib/marzban-node/docker-compose.yml
+        echo "Adding Iran block..."
+        echo "      - /var/lib/marzban:/var/lib/marzban" >> /var/lib/marzban-node/docker-compose.yml
+        echo "      - /var/lib/marzban/assets:/usr/local/share/xray" >> /var/lib/marzban-node/docker-compose.yml
+        mkdir -p /var/lib/marzban/assets/
+        wget -O /var/lib/marzban/assets/geosite.dat https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat
+        wget -O /var/lib/marzban/assets/geoip.dat https://github.com/v2fly/geoip/releases/latest/download/geoip.dat
+        wget -O /var/lib/marzban/assets/iran.dat https://github.com/bootmortis/iran-hosted-domains/releases/latest/download/iran.dat
+        cd && cd Marzban-node/ && docker compose down && docker compose up -d
+    fi
+    read -p "Press Enter to continue..." continue
+}
+
+# تابع نصب ورژن دلخواه Xray
+install_custom_xray() {
+    echo "Do you want to install the latest version of Xray or a custom version? (latest/custom)"
+    read xray_choice
+    sudo apt install -y unzip
+    nano /var/lib/marzban-node/docker-compose.yml
+    sed -i '/# XRAY_EXECUTABLE_PATH/d' /var/lib/marzban-node/docker-compose.yml
+    echo "XRAY_EXECUTABLE_PATH: \"/var/lib/marzban/xray-core/xray\"" >> /var/lib/marzban-node/docker-compose.yml
+    if [[ "$xray_choice" == "latest" ]]; then
+        wget https://github.com/XTLS/xray-core/releases/latest/download/Xray-linux-64.zip
+        unzip Xray-linux-64.zip
+        rm Xray-linux-64.zip
+    elif [[ "$xray_choice" == "custom" ]]; then
+        echo "Enter the download link for the Xray version:"
+        read xray_url
+        wget -O Xray-linux-64.zip "$xray_url"
+        unzip Xray-linux-64.zip
+        rm Xray-linux-64.zip
+    fi
+    cd && cd Marzban-node/ && docker compose down && docker compose up -d
+    read -p "Press Enter to continue..." continue
+}
+
+# تابع نصب Network Manager
+install_network_manager() {
+    echo "Installing Network Manager..."
+    sudo apt-get install network-manager -y
+    echo "Do you want to restart NetworkManager periodically? (yes/no)"
+    read restart_choice
+    if [[ "$restart_choice" == "yes" ]]; then
+        echo "Enter the hour (0-23):"
+        read hour
+        echo "Enter the minute (0-59):"
+        read minute
+        (crontab -l ; echo "$minute $hour */1 * * * systemctl restart NetworkManager") | crontab -
+    fi
+    read -p "Press Enter to continue..." continue
+}
+
+# تابع ریستارت خودکار نود مرزبان
+auto_restart_node() {
+    echo "Creating the run_docker.sh script..."
+    echo -e "#!/bin/bash\ncd Marzban-node\ndocker compose down && docker compose up -d" > /root/run_docker.sh
+    sudo chmod +x /root/run_docker.sh
+    echo "Enter the hour (0-23) for automatic restart:"
+    read hour
+    echo "Enter the minute (0-59) for automatic restart:"
+    read minute
+    (crontab -l ; echo "$minute $hour */4 * * * /root/run_docker.sh >/dev/null 2>&1") | crontab -
+    echo "Marzban Node will be restarted automatically."
+    read -p "Press Enter to continue..." continue
+}
+
+# تابع ریستارت خودکار سرور
+auto_restart_server() {
+    echo "Do you want to schedule a server restart? (yes/no)"
+    read server_restart_choice
+    if [[ "$server_restart_choice" == "yes" ]]; then
+        echo "Enter the hour (0-23) for automatic server restart:"
+        read hour
+        echo "Enter the minute (0-59) for automatic server restart:"
+        read minute
+        (crontab -l ; echo "$minute $hour */6 * * * /sbin/shutdown -r now") | crontab -
+        echo "Server restart scheduled."
+    fi
+    read -p "Press Enter to continue..." continue
+}
+
+# حلقه اصلی منو
+while true; do
+    show_menu
+    read -p "Select an option [1-8]: " option
+    case $option in
+        1) update_server ;;
+        2) install_marzban_node ;;
+        3) block_iran ;;
+        4) install_custom_xray ;;
+        5) install_network_manager ;;
+        6) auto_restart_node ;;
+        7) auto_restart_server ;;
+        8) exit ;;
+        *) echo "Invalid option!" ;;
+    esac
+done
